@@ -1,0 +1,4 @@
+/target
+.env
+cfg.json
+.idea
