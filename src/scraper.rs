@@ -107,19 +107,20 @@ fn current_version_codes_valid(page: String, game_version: String) -> Result<boo
         < chrono::Duration::days(1));
 }
 
-pub async fn run(tx: Sender<Vec<String>>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
+pub async fn run(tx: Sender<Vec<String>>, mut shutdown: tokio::sync::watch::Receiver<bool>, interval: u64) {
     loop {
         if shutdown.has_changed().unwrap() && *shutdown.borrow_and_update() {
             break;
         }
         match retrieve_valid_codes().await {
             Ok(data) => {
+                tracing::info!("Retrieved {} valid codes. Sending to shards", data.len());
                 tx.send(data).await.unwrap();
             }
             Err(err) => {
                 tracing::error!("Error: {}", err);
             }
         }
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        tokio::time::sleep(Duration::from_secs(interval)).await;
     }
 }

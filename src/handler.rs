@@ -33,6 +33,7 @@ impl Handler {
                     match crate::config::get_codes_to_send(guild.id, &codes) {
                         Ok(send_codes) => match Self::get_alert_channel(*guild, &ctx).await {
                             Ok(chan) => {
+                                tracing::info!("Found {} new codes for guild {}", send_codes.len(), guild.id);
                                 let role_str = crate::config::guild_alert_role(guild.id)
                                     .map_or("".to_string(), |opt| format!("<@&{}>", opt));
 
@@ -66,6 +67,8 @@ impl Handler {
                                             tracing::error!("Error: {}", err);
                                         }
                                     }
+                                } else {
+                                    tracing::info!("No new codes to send to {}", guild.id)
                                 }
                             }
                             Err(err) => {

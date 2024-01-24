@@ -16,6 +16,9 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() {
+    let interval_sec: String = env::args().skip(1).take(1).collect::<Vec<String>>().first().or(Some(&"3600".to_string())).unwrap().clone();
+    let interval_secs = interval_sec.parse::<u64>().or_else(|_| Ok::<u64, String>(3600)).unwrap();
+
     dotenv::dotenv().expect("Should be able to load dotenv!");
     tracing_subscriber::fmt().init();
     let token = env::var("DISCORD_TOKEN").expect("Discord token should be loaded in env");
@@ -41,10 +44,12 @@ async fn main() {
         client.start().await.unwrap();
     });
 
+    tracing::info!("Starting scraper with an interval of {}s", &interval_secs);
+
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             shutdown_tx.send(true).unwrap()
         }
-        _ = scraper::run(tx, shutdown_rx.clone()) => {}
+        _ = scraper::run(tx, shutdown_rx.clone(), interval_secs) => {}
     }
 }
