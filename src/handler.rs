@@ -33,7 +33,11 @@ impl Handler {
                     match crate::config::get_codes_to_send(guild.id, &codes) {
                         Ok(send_codes) => match Self::get_alert_channel(*guild, &ctx).await {
                             Ok(chan) => {
-                                tracing::info!("Found {} new codes for guild {}", send_codes.len(), guild.id);
+                                tracing::info!(
+                                    "Found {} new codes for guild {}",
+                                    send_codes.len(),
+                                    guild.id
+                                );
                                 let role_str = crate::config::guild_alert_role(guild.id)
                                     .map_or("".to_string(), |opt| format!("<@&{}>", opt));
 
@@ -53,17 +57,19 @@ impl Handler {
                                         .await
                                     {
                                         tracing::error!(
-                                        "Could not send message to channel {}: {}",
-                                        chan.name,
-                                        err
-                                    )
+                                            "Could not send message to channel {}: {}",
+                                            chan.name,
+                                            err
+                                        )
                                     } else {
                                         tracing::info!(
-                                        "Sent message: {} to channel {}",
-                                        &msg,
-                                        chan.name
-                                    );
-                                        if let Err(err) = crate::config::update_sent_codes(guild.id, &send_codes) {
+                                            "Sent message: {} to channel {}",
+                                            &msg,
+                                            chan.name
+                                        );
+                                        if let Err(err) =
+                                            crate::config::update_sent_codes(guild.id, &send_codes)
+                                        {
                                             tracing::error!("Error: {}", err);
                                         }
                                     }
@@ -138,9 +144,13 @@ impl EventHandler for Handler {
             let content = match command.data.name.as_str() {
                 commands::enable::CMD_NAME => Some(commands::enable::run(&command)),
                 commands::disable::CMD_NAME => Some(commands::disable::run(&command)),
-                commands::set_alert_channel::CMD_NAME => Some(commands::set_alert_channel::run(&command)),
+                commands::set_alert_channel::CMD_NAME => {
+                    Some(commands::set_alert_channel::run(&command))
+                }
                 commands::set_alert_role::CMD_NAME => Some(commands::set_alert_role::run(&command)),
-                commands::subscribe::CMD_NAME => Some(commands::subscribe::run(&command, &ctx).await),
+                commands::subscribe::CMD_NAME => {
+                    Some(commands::subscribe::run(&command, &ctx).await)
+                }
                 _ => {
                     tracing::warn!("Received invalid command");
                     None

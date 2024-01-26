@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc::Sender;
 
-use anyhow::{Result};
+use anyhow::Result;
 use chrono::Days;
 use scraper::{ElementRef, Html, Selector};
 
@@ -95,7 +95,22 @@ fn current_version_codes_valid(page: String, game_version: String) -> Result<boo
         .iter_mut()
         .map(|x| (x.0.trim().to_string(), x.1.trim().to_string()))
         .collect();
-    let (_, current_version_release) = version_infos.iter().find(|&x| x.0 == game_version).unwrap();
+
+    let future_version = (
+        "".to_string(),
+        chrono::Local::now()
+            .date_naive()
+            .checked_add_days(Days::new(14))
+            .unwrap()
+            .format("%Y-%m-%d")
+            .to_string(),
+    );
+
+    let (_, current_version_release) = version_infos
+        .iter()
+        .find(|&x| x.0 == game_version)
+        .or(Some(&future_version))
+        .unwrap();
     let current_version_release_date =
         chrono::NaiveDate::parse_from_str(&current_version_release, "%Y-%m-%d").unwrap();
     let current_version_livestream = current_version_release_date
@@ -107,14 +122,19 @@ fn current_version_codes_valid(page: String, game_version: String) -> Result<boo
         < chrono::Duration::days(1));
 }
 
-pub async fn run(tx: Sender<Vec<String>>, mut shutdown: tokio::sync::watch::Receiver<bool>, interval: u64) {
+pub async fn run(
+    tx: Sender<Vec<String>>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+    interval: u64,
+) {
     loop {
         if shutdown.has_changed().unwrap() && *shutdown.borrow_and_update() {
             break;
         }
         match retrieve_valid_codes().await {
             Ok(data) => {
-                tracing::info!("Retrieved {} valid codes. Sending to shards", data.len());
+                tracing::info!("Retrieved {} valid codes. Sending to shards", &data.len());
+                tracing::info!("Valid codes are: {:?}", &data);
                 tx.send(data).await.unwrap();
             }
             Err(err) => {

@@ -4,7 +4,6 @@ use crate::config;
 
 pub const CMD_NAME: &'static str = "enable";
 
-
 pub fn run(interaction: &CommandInteraction) -> String {
     return if let Some(guild_id) = interaction.guild_id {
         if let Err(error) = config::set_guild_state(guild_id, true) {
