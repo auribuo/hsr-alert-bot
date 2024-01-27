@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use serenity::all::{CreateMessage, Guild, GuildChannel, UnavailableGuild};
+use serenity::all::{CreateMessage, Guild, GuildChannel, GuildId, PartialGuild, UnavailableGuild};
 use serenity::{
     all::{Interaction, Ready},
     async_trait,
@@ -26,6 +26,18 @@ impl Handler {
             drop(lock);
 
             tracing::info!("Updating guild information");
+
+            match crate::config::validate_info(&ctx).await {
+                Ok(data) => {
+                    for reason in data.iter() {
+                        if let Err(err) = crate::config::alert_guild_invalid_info(&ctx, reason).await {
+                            tracing::error!("Could not alert guild {} of invalid info: {}", (*reason).0.clone(), err)
+                        }
+                    }
+                },
+                Err(err) => tracing::error!("Could not retrieve up-to-date info for guilds: {}", err)
+            }
+
             tracing::info!("Waiting for current codes");
             let new_codes = crate::CODE_CHAN.lock().await.as_mut().unwrap().recv().await;
             if let Some(codes) = new_codes {
@@ -111,16 +123,49 @@ impl Handler {
                 }
                 let (_, alert_channel) = alert_channel_result.unwrap();
                 return Ok(alert_channel.clone());
+            } else {
+                return Err(anyhow!("No alert channel set"));
             }
         }
         return Err(anyhow!("Guild not found"));
     }
 }
 
+async fn resolve_guilds(guild_id: &GuildId, ctx: &Context) -> Result<PartialGuild> {
+    return match Guild::get(&ctx.http, guild_id).await {
+        Ok(guild) => {
+            Ok(guild)
+        }
+        Err(error) => Err(anyhow::Error::new(error))
+    };
+}
+
 #[async_trait]
 impl EventHandler for Handler {
+    async fn guild_create(&self, _: Context, guild: Guild, _: Option<bool>) {
+        tracing::info!("Updating guild info in config");
+        if let Err(err) = crate::config::update_guild(&guild) {
+            tracing::error!("Could not update guilds: {}", err);
+        }
+    }
+
     async fn ready(&self, ctx: Context, ready: Ready) {
         tracing::info!("{} has connected!", ready.user.name);
+
+        let mut joined_guilds: Vec<PartialGuild> = vec![];
+
+        for guild in ready.guilds.iter() {
+            if let Ok(guild) = resolve_guilds(&guild.id, &ctx).await {
+                joined_guilds.push(guild);
+            }
+        }
+
+        tracing::info!("{} connected to guilds:\n{:?}", ready.user.name, joined_guilds.iter().map(|g| g.name.clone()).collect::<Vec<String>>());
+
+        tracing::info!("Updating guild info in config");
+        if let Err(err) = crate::config::update_guilds(&ready.guilds) {
+            tracing::error!("Could not update guilds: {}", err);
+        }
 
         let commands = vec![
             commands::enable::register(),
@@ -136,6 +181,8 @@ impl EventHandler for Handler {
             Self::run_alerts(ready.guilds.iter().collect(), ctx.clone()).await;
         });
     }
+
+
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::Command(command) = interaction {
