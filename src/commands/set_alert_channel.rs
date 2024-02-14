@@ -1,4 +1,4 @@
-use crate::config;
+use crate::CONFIG;
 use serenity::all::{
     CommandInteraction, CommandOptionType, CreateCommand, CreateCommandOption, ResolvedOption,
     ResolvedValue,
@@ -6,15 +6,16 @@ use serenity::all::{
 
 pub const CMD_NAME: &'static str = "alert-channel";
 
-pub fn run(interaction: &CommandInteraction) -> String {
-    if let Some(ResolvedOption {
+pub async fn run(interaction: &CommandInteraction) -> String {
+    let mut cfg = CONFIG.write().await;
+    return if let Some(ResolvedOption {
         value: ResolvedValue::Channel(channel),
         ..
     }) = interaction.data.options().first()
     {
-        return if let Some(guild_id) = interaction.guild_id {
+        if let Some(guild_id) = interaction.guild_id {
             // TODO check if channel text channel
-            if let Err(error) = config::set_guild_alert_channel(guild_id, Some(channel.id)) {
+            if let Err(error) = cfg.set_guild_alert_channel(guild_id, Some(channel.id)) {
                 tracing::error!("{error}");
                 "Could not set alert channel due to an internal error".to_string()
             } else {
@@ -30,10 +31,10 @@ pub fn run(interaction: &CommandInteraction) -> String {
             }
         } else {
             "Command run from something that is not a guild".to_string()
-        };
+        }
     } else {
-        return if let Some(guild_id) = interaction.guild_id {
-            if let Err(err) = config::set_guild_alert_channel(guild_id, None) {
+        if let Some(guild_id) = interaction.guild_id {
+            if let Err(err) = cfg.set_guild_alert_channel(guild_id, None) {
                 tracing::error!("Error: {}", err);
                 "Could not remove the alert channel because of an internal error".to_string()
             } else {
@@ -45,8 +46,8 @@ pub fn run(interaction: &CommandInteraction) -> String {
             }
         } else {
             "Command run from something that is not a guild".to_string()
-        };
-    }
+        }
+    };
 }
 
 pub fn register() -> CreateCommand {

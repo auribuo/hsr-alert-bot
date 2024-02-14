@@ -1,8 +1,10 @@
 use lazy_static::lazy_static;
 use serenity::{all::GatewayIntents, Client};
 use std::env;
+use std::env::args;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
+use tracing::Level;
 
 mod commands;
 mod config;
@@ -10,30 +12,28 @@ mod handler;
 mod scraper;
 
 lazy_static! {
-    static ref CODE_CHAN: Mutex<Option<Receiver<Vec<String>>>> = Mutex::new(None);
+    static ref CODE_CHAN: Mutex<Option<Receiver<Vec<(String, bool)>>>> = Mutex::new(None);
     static ref SHUTDOWN_RECV: Mutex<Option<tokio::sync::watch::Receiver<bool>>> = Mutex::new(None);
+    static ref CONFIG: RwLock<config::Config> = RwLock::new(config::Config::read().unwrap());
 }
+
+#[macro_use]
+extern crate tracing;
+
+static SCRAPER_INTERVAL: u64 = 3600;
 
 #[tokio::main]
 async fn main() {
-    let interval_sec: String = env::args()
+    let token_env = args()
         .skip(1)
-        .take(1)
-        .collect::<Vec<String>>()
-        .first()
-        .or(Some(&"3600".to_string()))
-        .unwrap()
-        .clone();
-    let interval_secs = interval_sec
-        .parse::<u64>()
-        .or_else(|_| Ok::<u64, String>(3600))
-        .unwrap();
+        .find(|a| a.as_str() == "dev")
+        .map_or_else(|| "DISCORD_TOKEN", |_| "TOKEN_DEV");
 
     dotenv::dotenv().expect("Should be able to load dotenv!");
-    tracing_subscriber::fmt().init();
-    let token = env::var("DISCORD_TOKEN").expect("Discord token should be loaded in env");
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
+    let token = env::var(token_env).expect("Discord token should be loaded in env");
 
-    let (tx, rx) = mpsc::channel::<Vec<String>>(32);
+    let (tx, rx) = mpsc::channel::<Vec<(String, bool)>>(32);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     let mut glob_chan = CODE_CHAN.lock().await;
@@ -54,12 +54,12 @@ async fn main() {
         client.start().await.unwrap();
     });
 
-    tracing::info!("Starting scraper with an interval of {}s", &interval_secs);
+    info!("Starting scraper with an interval of {}s", SCRAPER_INTERVAL);
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             shutdown_tx.send(true).unwrap()
         }
-        _ = scraper::run(tx, shutdown_rx.clone(), interval_secs) => {}
+        _ = scraper::run(tx, shutdown_rx.clone(), SCRAPER_INTERVAL) => {}
     }
 }
