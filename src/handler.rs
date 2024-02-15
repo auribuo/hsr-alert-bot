@@ -132,7 +132,7 @@ async fn resolve_guilds(guild_id: &GuildId, ctx: &Context) -> Result<PartialGuil
 #[async_trait]
 impl EventHandler for Handler {
     async fn guild_create(&self, _: Context, guild: Guild, _: Option<bool>) {
-        if let Err(err) = CONFIG.write().await.update_on_join(guild) {
+        if let Err(err) = CONFIG.write().await.update_on_join(guild.id) {
             error!(reason = err.to_string(), "Could not update config");
         }
     }
