@@ -98,7 +98,14 @@ impl Config {
             guild_info.enabled = enabled;
             Ok(self.save()?)
         } else {
-            Err(anyhow!("Guild {guild} not found."))
+            warn!(guild=?&guild, "Guild not found. Adding to config.");
+            self.update_on_join(guild)?;
+            self.guilds
+                .iter_mut()
+                .find(|g| g.id == guild)
+                .unwrap()
+                .enabled = enabled;
+            Ok(self.save()?)
         };
     }
 
@@ -107,8 +114,29 @@ impl Config {
             guild_info.alert_role = role;
             Ok(self.save()?)
         } else {
-            Err(anyhow!("Guild {guild} not found."))
+            warn!(guild=?&guild, "Guild not found. Adding to config.");
+            self.update_on_join(guild)?;
+            self.guilds
+                .iter_mut()
+                .find(|g| g.id == guild)
+                .unwrap()
+                .alert_role = role;
+            Ok(self.save()?)
         };
+    }
+
+    // TODO: optimize
+    fn resolve_config_guild(&mut self, guild: GuildId) -> GuildInfo {
+        if self.guilds.iter().find(|g| g.id == guild).is_some() {
+            self.guilds
+                .iter_mut()
+                .find(|g| g.id == guild)
+                .unwrap()
+                .clone()
+        } else {
+            self.guilds.push(GuildInfo::new(guild));
+            GuildInfo::new(guild)
+        }
     }
 
     pub fn guild_alert_role(&self, guild: GuildId) -> Option<RoleId> {
@@ -128,7 +156,14 @@ impl Config {
             guild_info.alert_channel = channel;
             Ok(self.save()?)
         } else {
-            Err(anyhow!("Guild {guild} not found."))
+            warn!(guild=?&guild, "Guild not found. Adding to config.");
+            self.update_on_join(guild)?;
+            self.guilds
+                .iter_mut()
+                .find(|g| g.id == guild)
+                .unwrap()
+                .alert_channel = channel;
+            Ok(self.save()?)
         };
     }
 
@@ -149,33 +184,16 @@ impl Config {
                 .is_none()
             {
                 warn!(guild=?&guild.id, "New guild found. Adding to config");
-                self.guilds.push(GuildInfo {
-                    id: guild.id,
-                    alert_channel: None,
-                    alert_role: None,
-                    enabled: true,
-                    last_code: 0,
-                });
+                self.guilds.push(GuildInfo::new(guild.id));
             }
         }
         Ok(self.save()?)
     }
 
-    pub fn update_on_join(&mut self, guild: Guild) -> Result<()> {
-        if self
-            .guilds
-            .iter()
-            .find(|info| info.id == guild.id)
-            .is_none()
-        {
-            warn!(guild=?&guild.id, "New guild joined. Adding to config");
-            self.guilds.push(GuildInfo {
-                id: guild.id,
-                alert_channel: None,
-                alert_role: None,
-                enabled: true,
-                last_code: 0,
-            });
+    pub fn update_on_join(&mut self, guild: GuildId) -> Result<()> {
+        if self.guilds.iter().find(|info| info.id == guild).is_none() {
+            warn!(guild=?&guild, "New guild joined. Adding to config");
+            self.guilds.push(GuildInfo::new(guild));
         }
         Ok(())
     }
@@ -344,6 +362,18 @@ pub struct GuildInfo {
     pub(crate) alert_channel: Option<ChannelId>,
     pub(crate) enabled: bool,
     pub(crate) last_code: u64,
+}
+
+impl GuildInfo {
+    pub fn new(id: GuildId) -> Self {
+        Self {
+            id,
+            last_code: 0,
+            enabled: true,
+            alert_channel: None,
+            alert_role: None,
+        }
+    }
 }
 
 #[derive(Debug)]
