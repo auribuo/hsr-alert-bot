@@ -161,6 +161,25 @@ impl Config {
         Ok(self.save()?)
     }
 
+    pub fn update_on_join(&mut self, guild: Guild) -> Result<()> {
+        if self
+            .guilds
+            .iter()
+            .find(|info| info.id == guild.id)
+            .is_none()
+        {
+            warn!(guild=?&guild.id, "New guild joined. Adding to config");
+            self.guilds.push(GuildInfo {
+                id: guild.id,
+                alert_channel: None,
+                alert_role: None,
+                enabled: true,
+                last_code: 0,
+            });
+        }
+        Ok(())
+    }
+
     pub async fn validate_info(&self, ctx: &Context) -> Result<Vec<(GuildId, InvalidInfo)>> {
         let mut invalid_guilds: Vec<(GuildId, InvalidInfo)> = vec![];
         for guild in self.guilds.iter() {

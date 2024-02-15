@@ -9,7 +9,7 @@ use serenity::{
 
 use crate::commands::CreateCommandVecExt;
 use crate::config::{Config, RedeemCode};
-use crate::{commands, CONFIG, SHUTDOWN_RECV};
+use crate::{commands, CONFIG};
 
 pub struct Handler {}
 
@@ -20,12 +20,6 @@ impl Handler {
 
     async fn run_alerts(ctx: Context) {
         loop {
-            let mut lock = SHUTDOWN_RECV.lock().await;
-            if *lock.as_mut().expect("ERROR!").borrow_and_update() {
-                return;
-            }
-            drop(lock);
-
             info!("Updating guild information");
 
             let config = CONFIG.read().await;
@@ -137,6 +131,12 @@ async fn resolve_guilds(guild_id: &GuildId, ctx: &Context) -> Result<PartialGuil
 
 #[async_trait]
 impl EventHandler for Handler {
+    async fn guild_create(&self, _: Context, guild: Guild, _: Option<bool>) {
+        if let Err(err) = CONFIG.write().await.update_on_join(guild) {
+            error!(reason = err.to_string(), "Could not update config");
+        }
+    }
+
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("{} has connected!", ready.user.name);
 

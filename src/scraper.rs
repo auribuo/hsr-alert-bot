@@ -1,3 +1,4 @@
+use std::process::exit;
 use std::time::Duration;
 
 use tokio::sync::mpsc::Sender;
@@ -15,8 +16,8 @@ async fn retrieve_page(url: &'static str) -> Result<String> {
     Ok(page_data)
 }
 
-async fn retrieve_valid_codes() -> Result<Vec<(String, bool)>> {
-    let soup = soup::Soup::new(retrieve_page(BASE_URL).await?.as_str());
+fn retrieve_valid_codes(page: &str, version_page: &str) -> Result<Vec<(String, bool)>> {
+    let soup = soup::Soup::new(page);
     let lists = soup
         .class("a-list")
         .find_all()
@@ -53,17 +54,7 @@ async fn retrieve_valid_codes() -> Result<Vec<(String, bool)>> {
         .map(|code| (code.clone(), true))
         .collect::<Vec<_>>();
 
-    /* let headings_text = soup
-    .tag("h2")
-    .find_all()
-    .skip(1)
-    .take(1)
-    .map(|header| header.text().trim().to_string())
-    .find(|_| true)
-    .expect("Page differs from expected");*/
-
     let mut valid_codes = current_codes;
-    let version_page = retrieve_page(VERSION_INFO_URL).await?;
     if current_version_codes_valid(version_page)? {
         valid_codes.append(&mut version_codes);
     }
@@ -71,8 +62,8 @@ async fn retrieve_valid_codes() -> Result<Vec<(String, bool)>> {
     Ok(valid_codes)
 }
 
-fn current_version_codes_valid(page: String) -> Result<bool> {
-    let soup = soup::Soup::new(page.as_str());
+fn current_version_codes_valid(page: &str) -> Result<bool> {
+    let soup = soup::Soup::new(page);
     let latest_version_table = soup
         .tag("table")
         .find_all()
@@ -115,16 +106,23 @@ fn current_version_codes_valid(page: String) -> Result<bool> {
         < chrono::Duration::days(1));
 }
 
-pub async fn run(
-    tx: Sender<Vec<(String, bool)>>,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-    interval: u64,
-) {
+pub async fn run(tx: Sender<Vec<(String, bool)>>, interval: u64) {
     loop {
-        if shutdown.has_changed().unwrap() && *shutdown.borrow_and_update() {
-            break;
+        let page: String;
+        let version_page: String;
+        if let Ok(p) = retrieve_page(BASE_URL).await {
+            page = p;
+        } else {
+            error!("Could not fetch page.");
+            exit(1);
         }
-        match retrieve_valid_codes().await {
+        if let Ok(vp) = retrieve_page(VERSION_INFO_URL).await {
+            version_page = vp;
+        } else {
+            error!("Could not fetch page.");
+            exit(1);
+        }
+        match retrieve_valid_codes(&page, &version_page) {
             Ok(data) => {
                 info!(
                     amount = &data.len(),
@@ -134,7 +132,7 @@ pub async fn run(
                 tx.send(data).await.unwrap();
             }
             Err(err) => {
-                error!("Error: {}", err);
+                error!(reason = err.to_string(), "Could not retrieve valid codes");
             }
         }
         tokio::time::sleep(Duration::from_secs(interval)).await;
