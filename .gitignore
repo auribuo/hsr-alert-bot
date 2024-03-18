@@ -1,5 +1,4 @@
 /target
-.env
 cfg.json
 .idea
 Secrets.toml

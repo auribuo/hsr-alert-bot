@@ -1,4 +1,5 @@
 use lazy_static::lazy_static;
+use libsql::Connection;
 use serenity::{all::GatewayIntents, Client};
 use shuttle_secrets::{SecretStore, Secrets};
 use tokio::sync::mpsc::Receiver;
@@ -20,7 +21,14 @@ extern crate tracing;
 static SCRAPER_INTERVAL: u64 = 3600;
 
 #[shuttle_runtime::main]
-async fn main(#[Secrets] secrets: SecretStore) -> shuttle_serenity::ShuttleSerenity {
+async fn main(
+    #[Secrets] secrets: SecretStore,
+    #[shuttle_turso::Turso(
+        addr = "libsql://hsr-alert-bot-auribuo.turso.io",
+        token = "{secrets.TURSO_TOKEN}"
+    )]
+    client: Connection,
+) -> shuttle_serenity::ShuttleSerenity {
     let token = secrets.get("DISCORD_TOKEN").expect("No token provided");
 
     let (tx, rx) = mpsc::channel::<Vec<(String, bool)>>(32);
