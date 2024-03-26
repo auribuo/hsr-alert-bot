@@ -3,3 +3,4 @@ cfg.json
 .idea
 Secrets.toml
 Secrets.dev.toml
+.db
