@@ -1,14 +1,10 @@
 use std::process::exit;
 use std::time::Duration;
 
+use scraper::{Html, Selector};
 use tokio::sync::mpsc::Sender;
 
 use anyhow::Result;
-use chrono::Days;
-use soup::{NodeExt, QueryBuilderExt};
-
-static BASE_URL: &'static str = "https://game8.co/games/Honkai-Star-Rail/archives/410296";
-static VERSION_INFO_URL: &'static str = "https://honkai-star-rail.fandom.com/wiki/Version";
 
 async fn retrieve_page(url: &'static str) -> Result<String> {
     let response = reqwest::get(url).await?;
@@ -16,113 +12,38 @@ async fn retrieve_page(url: &'static str) -> Result<String> {
     Ok(page_data)
 }
 
-fn retrieve_valid_codes(page: &str, version_page: &str) -> Result<Vec<(String, bool)>> {
-    let soup = soup::Soup::new(page);
-    let lists = soup
-        .class("a-list")
-        .find_all()
-        .take(2)
-        .map(|node| {
-            let bold = node
-                .tag("b")
-                .find_all()
-                .map(|inner| inner.text())
-                .collect::<Vec<_>>();
-            if bold.is_empty() {
-                node.tag("li")
-                    .find_all()
-                    .map(|line| line.tag("a").find().expect("Page differs from expected"))
-                    .map(|a| a.text())
-                    .collect::<Vec<_>>()
-            } else {
-                bold
-            }
-        })
-        .map(|text| {
-            text.iter()
-                .map(|t| t.trim().to_string())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+fn scrape_codes(page: &str) -> Result<Vec<String>> {
+    let html = Html::parse_document(page);
+    let code_container_selector = Selector::parse("div.codes").unwrap();
 
-    let current_codes = lists[0]
-        .iter()
-        .map(|code| (code.clone(), false))
-        .collect::<Vec<_>>();
-    let mut version_codes = lists[1]
-        .iter()
-        .map(|code| (code.clone(), true))
-        .collect::<Vec<_>>();
+    let code_container = html
+        .select(&code_container_selector)
+        .next()
+        .expect("Page broken: No codes div found");
 
-    let mut valid_codes = current_codes;
-    if current_version_codes_valid(version_page)? {
-        valid_codes.append(&mut version_codes);
+    let code_count = code_container.child_elements().count();
+    let mut codes = Vec::with_capacity(code_count);
+
+    for dv in code_container.child_elements() {
+        let code = dv.text().next();
+        if let Some(code) = code {
+            codes.push(code.to_string());
+        }
     }
 
-    Ok(valid_codes)
+    Ok(codes)
 }
 
-fn current_version_codes_valid(page: &str) -> Result<bool> {
-    let soup = soup::Soup::new(page);
-    let latest_version_table = soup
-        .tag("table")
-        .find_all()
-        .take(1)
-        .find(|_| true)
-        .expect("Page differs from expected");
-    let current_version_release = &latest_version_table
-        .tag("tr")
-        .find_all()
-        .skip(1)
-        .map(|row| {
-            row.tag("td")
-                .find_all()
-                .take(3)
-                .map(|cell| cell.text().trim().to_string())
-                .collect::<Vec<_>>()
-        })
-        .skip_while(|cells| cells[2] == "Unknown")
-        .find(|_| true)
-        .map_or_else(
-            || {
-                chrono::Local::now()
-                    .date_naive()
-                    .checked_add_days(Days::new(14))
-                    .unwrap()
-                    .format("%Y-%m-%d")
-                    .to_string()
-            },
-            |ok| ok[2].clone(),
-        );
-
-    let current_version_release_date =
-        chrono::NaiveDate::parse_from_str(&current_version_release, "%Y-%m-%d").unwrap();
-    let current_version_livestream = current_version_release_date
-        .checked_sub_days(Days::new(12))
-        .unwrap();
-    return Ok(chrono::Local::now()
-        .date_naive()
-        .signed_duration_since(current_version_livestream)
-        < chrono::Duration::days(1));
-}
-
-pub async fn run(tx: Sender<Vec<(String, bool)>>, interval: u64) {
+pub async fn run(tx: Sender<Vec<String>>, interval: u64) {
     loop {
         let page: String;
-        let version_page: String;
-        if let Ok(p) = retrieve_page(BASE_URL).await {
-            page = p;
+        if let Ok(np) = retrieve_page("https://www.prydwen.gg/star-rail/").await {
+            page = np;
         } else {
             error!("Could not fetch page.");
             exit(1);
         }
-        if let Ok(vp) = retrieve_page(VERSION_INFO_URL).await {
-            version_page = vp;
-        } else {
-            error!("Could not fetch page.");
-            exit(1);
-        }
-        match retrieve_valid_codes(&page, &version_page) {
+        match scrape_codes(&page) {
             Ok(data) => {
                 info!(
                     amount = &data.len(),

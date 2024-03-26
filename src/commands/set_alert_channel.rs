@@ -1,4 +1,4 @@
-use crate::CONFIG;
+use crate::DB;
 use serenity::all::{
     CommandInteraction, CommandOptionType, CreateCommand, CreateCommandOption, ResolvedOption,
     ResolvedValue,
@@ -7,7 +7,8 @@ use serenity::all::{
 pub const CMD_NAME: &'static str = "alert-channel";
 
 pub async fn run(interaction: &CommandInteraction) -> String {
-    let mut cfg = CONFIG.write().await;
+    let db_opt = DB.read().await;
+    let db = db_opt.as_ref().unwrap();
     return if let Some(ResolvedOption {
         value: ResolvedValue::Channel(channel),
         ..
@@ -15,7 +16,7 @@ pub async fn run(interaction: &CommandInteraction) -> String {
     {
         if let Some(guild_id) = interaction.guild_id {
             // TODO check if channel text channel
-            if let Err(error) = cfg.set_guild_alert_channel(guild_id, Some(channel.id)) {
+            if let Err(error) = db.set_guild_alert_channel(guild_id, Some(channel.id)).await {
                 tracing::error!("{error}");
                 "Could not set alert channel due to an internal error".to_string()
             } else {
@@ -34,7 +35,7 @@ pub async fn run(interaction: &CommandInteraction) -> String {
         }
     } else {
         if let Some(guild_id) = interaction.guild_id {
-            if let Err(err) = cfg.set_guild_alert_channel(guild_id, None) {
+            if let Err(err) = db.set_guild_alert_channel(guild_id, None).await {
                 tracing::error!("Error: {}", err);
                 "Could not remove the alert channel because of an internal error".to_string()
             } else {

@@ -1,4 +1,4 @@
-use crate::CONFIG;
+use crate::DB;
 use serenity::all::Context;
 use serenity::{all::CommandInteraction, builder::CreateCommand};
 
@@ -7,7 +7,14 @@ pub const CMD_NAME: &'static str = "subscribe";
 pub async fn run(interaction: &CommandInteraction, ctx: &Context) -> String {
     return if let Some(guild_id) = interaction.guild_id {
         return if let Some(member) = &interaction.member {
-            if let Some(role) = CONFIG.read().await.guild_alert_role(guild_id) {
+            if let Ok(Some(role)) = DB
+                .read()
+                .await
+                .as_ref()
+                .unwrap()
+                .guild_alert_role(guild_id)
+                .await
+            {
                 if let Ok(()) = member.add_role(&ctx, role).await {
                     "Subscribed you to the alerts!".to_string()
                 } else {

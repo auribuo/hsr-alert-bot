@@ -9,17 +9,16 @@ edition = "2021"
 anyhow = "1.0.79"
 chrono = { version = "0.4.32", features = ["serde"] }
 lazy_static = "1.4.0"
-libsql = { version = "0.3.1", features = ["core", "replication"] }
+libsql = { version = "0.2.0" }
 regex = "1.10.3"
 reqwest = { version = "0.11.23", features = ["blocking"] }
+scraper = "0.19.0"
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
 serenity = "0.12.0"
-shuttle-runtime = "0.41.0"
-shuttle-secrets = "0.41.0"
-shuttle-serenity = "0.41.0"
-shuttle-turso = "0.41.0"
-soup = "0.5.1"
+shuttle-runtime = "0.42.0"
+shuttle-serenity = "0.42.0"
+shuttle-turso = "0.42.0"
 tokio = { version = "1.35.1", features = ["sync"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"

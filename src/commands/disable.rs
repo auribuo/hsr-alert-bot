@@ -1,11 +1,18 @@
-use crate::CONFIG;
+use crate::DB;
 use serenity::{all::CommandInteraction, builder::CreateCommand};
 
 pub const CMD_NAME: &'static str = "disable";
 
 pub async fn run(interaction: &CommandInteraction) -> String {
     return if let Some(guild_id) = interaction.guild_id {
-        if let Err(error) = CONFIG.write().await.set_guild_state(guild_id, true) {
+        if let Err(error) = DB
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .set_guild_state(guild_id, true)
+            .await
+        {
             tracing::error!("{error}");
             "Failed to disable alerts.".to_string()
         } else {

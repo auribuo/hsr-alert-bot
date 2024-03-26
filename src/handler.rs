@@ -8,8 +8,8 @@ use serenity::{
 };
 
 use crate::commands::CreateCommandVecExt;
-use crate::config::{Config, RedeemCode};
-use crate::{commands, CONFIG};
+use crate::db::{TursoCode, TursoDb};
+use crate::{commands, DB};
 
 pub struct Handler {}
 
@@ -22,20 +22,21 @@ impl Handler {
         loop {
             info!("Updating guild information");
 
-            let config = CONFIG.read().await;
-            Self::validate_info(&ctx, &config).await;
-            drop(config);
+            Self::validate_info(&ctx, DB.read().await.as_ref().unwrap()).await;
             info!("Waiting for current codes");
             let new_codes = crate::CODE_CHAN.lock().await.as_mut().unwrap().recv().await;
             if let Some(codes) = new_codes {
-                Self::handle_new_codes(&ctx, &codes).await
+                if let Err(err) = Self::handle_new_codes(&ctx, &codes).await {
+                    error!(reason = err.to_string(), "Failed to handle new codes")
+                }
             }
         }
     }
 
-    async fn handle_new_codes(ctx: &Context, codes: &Vec<(String, bool)>) {
-        let mut config = CONFIG.write().await;
-        for guild_diff in config.diff_guild_codes(codes) {
+    async fn handle_new_codes(ctx: &Context, codes: &Vec<String>) -> Result<()> {
+        let db_opt = DB.read().await;
+        let db = db_opt.as_ref().unwrap();
+        for guild_diff in db.diff_guild_codes(codes).await? {
             if let Err(err) = Self::send_new_codes(
                 guild_diff.0,
                 guild_diff.1 .1,
@@ -45,13 +46,16 @@ impl Handler {
             .await
             {
                 error!(reason=err.to_string(), guild=?guild_diff.0, "Could not send codes");
+            } else {
+                info!(guild=?guild_diff.0, "Sent codes to guild.")
             }
         }
+        Ok(())
     }
 
     async fn send_new_codes(
         guild_id: GuildId,
-        codes: Vec<RedeemCode>,
+        codes: Vec<TursoCode>,
         alert_role: Option<RoleId>,
         ctx: &Context,
     ) -> Result<()> {
@@ -64,6 +68,7 @@ impl Handler {
         } else {
             "New Star Rail codes available".to_string()
         };
+
         let body = codes
             .iter()
             .map(|code| {
@@ -77,14 +82,15 @@ impl Handler {
         alert_chan
             .send_message(&ctx.http, CreateMessage::new().content(body))
             .await?;
+        info!(guild=?guild_id, "Sent codes to guild");
         Ok(())
     }
 
-    async fn validate_info(ctx: &Context, config: &Config) {
-        match config.validate_info(&ctx).await {
+    async fn validate_info(ctx: &Context, db: &TursoDb) {
+        match db.validate_info(&ctx).await {
             Ok(data) => {
                 for reason in data.iter() {
-                    if let Err(err) = config.alert_guild_invalid_info(&ctx, reason).await {
+                    if let Err(err) = db.alert_guild_invalid_info(&ctx, reason).await {
                         error!(
                             "Could not alert guild {} of invalid info: {}",
                             (*reason).0.clone(),
@@ -101,8 +107,14 @@ impl Handler {
 
     async fn get_alert_channel(guild_maybe: &GuildId, ctx: &Context) -> Result<GuildChannel> {
         if let Ok(guild) = Guild::get(&ctx.http, guild_maybe).await {
-            let config = Config::read()?;
-            return if let Some(chan_id) = config.guild_alert_channel(guild.id) {
+            return if let Ok(Some(chan_id)) = DB
+                .read()
+                .await
+                .as_ref()
+                .unwrap()
+                .guild_alert_channel(guild.id)
+                .await
+            {
                 let channel_result = guild.channels(&ctx.http).await;
                 if let Err(err) = channel_result {
                     return Err(anyhow!("Error: {}", err));
@@ -132,8 +144,22 @@ async fn resolve_guilds(guild_id: &GuildId, ctx: &Context) -> Result<PartialGuil
 #[async_trait]
 impl EventHandler for Handler {
     async fn guild_create(&self, _: Context, guild: Guild, _: Option<bool>) {
-        if let Err(err) = CONFIG.write().await.update_on_join(guild.id) {
-            error!(reason = err.to_string(), "Could not update config");
+        match DB
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .try_add_guild(guild.id)
+            .await
+        {
+            Ok(inserted) => {
+                if !inserted {
+                    warn!(guild=?guild.id, "Guild was already in db");
+                }
+            }
+            Err(err) => {
+                error!(reason = err.to_string(), "Could not add guild");
+            }
         }
     }
 
@@ -157,10 +183,17 @@ impl EventHandler for Handler {
                 .collect::<Vec<String>>()
         );
 
-        info!("Updating guild info in config");
+        info!("Updating guild info");
 
-        if let Err(err) = CONFIG.write().await.update_guilds(&ready.guilds) {
-            error!("Could not update guilds: {}", err);
+        if let Err(err) = DB
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .update_guilds(&ready.guilds)
+            .await
+        {
+            error!(reason = err.to_string(), "Could not update guilds");
         }
 
         let commands = vec![

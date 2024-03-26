@@ -1,4 +1,4 @@
-use crate::CONFIG;
+use crate::DB;
 use serenity::all::{
     CommandInteraction, CommandOptionType, CreateCommand, CreateCommandOption, ResolvedOption,
     ResolvedValue,
@@ -7,14 +7,15 @@ use serenity::all::{
 pub const CMD_NAME: &'static str = "alert-role";
 
 pub async fn run(interaction: &CommandInteraction) -> String {
-    let mut cfg = CONFIG.write().await;
+    let db_opt = DB.read().await;
+    let db = db_opt.as_ref().unwrap();
     return if let Some(ResolvedOption {
         value: ResolvedValue::Role(role),
         ..
     }) = interaction.data.options().first()
     {
         if let Some(guild_id) = interaction.guild_id {
-            if let Err(error) = cfg.set_guild_alert_role(guild_id, Some(role.id)) {
+            if let Err(error) = db.set_guild_alert_role(guild_id, Some(role.id)).await {
                 tracing::error!("{error}");
                 "Could not set alert role due to an internal error".to_string()
             } else {
@@ -30,7 +31,7 @@ pub async fn run(interaction: &CommandInteraction) -> String {
         }
     } else {
         if let Some(guild_id) = interaction.guild_id {
-            if let Err(err) = cfg.set_guild_alert_role(guild_id, None) {
+            if let Err(err) = db.set_guild_alert_role(guild_id, None).await {
                 tracing::error!("Error: {}", err);
                 "Could not remove the alert role because of an internal error".to_string()
             } else {
