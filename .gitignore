@@ -4,3 +4,4 @@ cfg.json
 Secrets.toml
 Secrets.dev.toml
 .db
+hsr-alert-bot.db
