@@ -252,25 +252,12 @@ impl TursoDb {
         new_codes: &Vec<String>,
     ) -> Result<HashMap<GuildId, (TursoGuild, Vec<TursoCode>)>> {
         for code in new_codes {
-            if let Err(err) = self
-                .client
+            self.client
                 .execute(
-                    "INSERT INTO codes (id, code, valid) VALUES (NULL, ?1, 1);",
+                    "INSERT INTO codes (id, code, valid) VALUES (NULL, ?1, 1) ON CONFLICT IGNORE;",
                     [code.as_str()],
                 )
-                .await
-            {
-                match err {
-                    libsql::Error::SqliteFailure(err_code, _) => {
-                        if err_code != 2067 {
-                            return Err(err.into());
-                        } else {
-                            warn!(code, "Code already encountered, skipping");
-                        }
-                    }
-                    _ => return Err(err.into()),
-                }
-            }
+                .await?;
         }
         self.invalidate_codes(new_codes).await?;
         let mut new_codes = HashMap::new();
