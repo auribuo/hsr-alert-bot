@@ -254,7 +254,7 @@ impl TursoDb {
         for code in new_codes {
             self.client
                 .execute(
-                    "INSERT INTO codes (id, code, valid) VALUES (NULL, ?1, 1) ON CONFLICT IGNORE;",
+                    "INSERT INTO codes (id, code, valid) VALUES (NULL, ?1, 1) ON CONFLICT DO NOTHING;",
                     [code.as_str()],
                 )
                 .await?;
