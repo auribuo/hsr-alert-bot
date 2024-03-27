@@ -216,6 +216,31 @@ impl TursoCode {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuildUpdate {
+    pub id: GuildId,
+    pub role: Option<RoleId>,
+    pub chan: Option<ChannelId>,
+    pub codes: Option<Vec<TursoCode>>,
+    pub enabled: bool,
+}
+
+impl GuildUpdate {
+    pub fn for_guild(guild: TursoGuild, codes: Option<Vec<TursoCode>>) -> Self {
+        Self {
+            id: guild.guild_id,
+            role: guild.alert_role,
+            chan: guild.alert_channel,
+            enabled: guild.enabled == 1,
+            codes,
+        }
+    }
+
+    pub fn has_codes(&self) -> bool {
+        self.codes.as_ref().map_or(false, |codes| !codes.is_empty())
+    }
+}
+
 pub struct TursoDb {
     client: Arc<Connection>,
 }
@@ -247,10 +272,38 @@ impl TursoDb {
         Ok(())
     }
 
+    pub async fn set_codes_sent(
+        &self,
+        guild: GuildId,
+        codes: Option<Vec<TursoCode>>,
+    ) -> Result<()> {
+        if let Some(codes) = codes {
+            let last_inserted = codes
+                .iter()
+                .max_by(|x, y| x.id.cmp(&y.id))
+                .map_or(0, |code| code.id);
+            let res = self
+                .client
+                .execute(
+                    "UPDATE guilds SET last_code = ?1 WHERE guild_id = ?2",
+                    params![last_inserted, i64::from(guild)],
+                )
+                .await?;
+            if res != 1 {
+                return Err(anyhow!(
+                    "Could not update last_code. Affected rows: {}",
+                    res
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub async fn diff_guild_codes(
         &self,
         new_codes: &Vec<String>,
-    ) -> Result<HashMap<GuildId, (TursoGuild, Vec<TursoCode>)>> {
+        ctx: &Context,
+    ) -> Result<HashMap<GuildId, GuildUpdate>> {
         for code in new_codes {
             self.client
                 .execute(
@@ -262,28 +315,26 @@ impl TursoDb {
         self.invalidate_codes(new_codes).await?;
         let mut new_codes = HashMap::new();
         for guild in self.guilds().await? {
+            if let Some(_) = self.validate_guild(&guild, ctx).await? {
+                warn!(guild=?guild.guild_id, "Skipping invalid guild");
+                continue;
+            }
+
+            if guild.enabled == 0 {
+                warn!(guild=?guild.guild_id, "Skipping disabled guild");
+                continue;
+            }
             let mut rows = self.client.query("SELECT * FROM codes WHERE id > (SELECT last_code FROM guilds WHERE guild_id = ?1) AND valid = 1", [i64::from(guild.guild_id)]).await?;
             let mut codes = Vec::new();
+            let guild_id = guild.guild_id;
             while let Some(row) = rows.next()? {
                 codes.push(TursoCode::from_row(row)?);
             }
-            let last_inserted = codes
-                .iter()
-                .max_by(|x, y| x.id.cmp(&y.id))
-                .map_or(0, |code| code.id);
-            new_codes.insert(guild.guild_id, (guild.clone(), codes));
-            let res = self
-                .client
-                .execute(
-                    "UPDATE guilds SET last_code = ?1 WHERE guild_id = ?2",
-                    params![last_inserted, i64::from(guild.guild_id)],
-                )
-                .await?;
-            if res != 1 {
-                return Err(anyhow!(
-                    "Could not update last_code. Affected rows: {}",
-                    res
-                ));
+            if codes.is_empty() {
+                new_codes.insert(guild_id, GuildUpdate::for_guild(guild, None));
+                return Ok(new_codes);
+            } else {
+                new_codes.insert(guild_id, GuildUpdate::for_guild(guild, Some(codes)));
             }
         }
 
@@ -328,6 +379,7 @@ impl TursoDb {
         Ok(())
     }
 
+    #[allow(dead_code)] // For completeness
     pub async fn guild_alert_channel(&self, guild: GuildId) -> Result<Option<ChannelId>> {
         let guilds = self.guilds().await?;
         let guild_info = guilds.iter().find(|g| g.guild_id == guild);
@@ -384,35 +436,45 @@ impl TursoDb {
         Ok(false)
     }
 
+    async fn validate_guild(
+        &self,
+        guild: &TursoGuild,
+        ctx: &Context,
+    ) -> Result<Option<InvalidInfo>> {
+        let g = Self::get_guild(&guild.guild_id, &ctx).await?;
+        let channel_valid = guild.alert_channel.is_some()
+            && g.channels(&ctx.http)
+                .await?
+                .iter()
+                .find(|(id, _)| **id == guild.alert_channel.unwrap())
+                .is_some();
+        let mut role_valid = true;
+        if guild.alert_role.is_some() {
+            role_valid = g
+                .roles
+                .iter()
+                .find(|(id, _)| **id == guild.alert_role.unwrap())
+                .is_some();
+        }
+        if !channel_valid && !role_valid {
+            Ok(Some(InvalidInfo::Both(
+                guild.alert_channel,
+                guild.alert_role.unwrap(),
+            )))
+        } else if !channel_valid {
+            Ok(Some(InvalidInfo::Channel(guild.alert_channel)))
+        } else if !role_valid {
+            Ok(Some(InvalidInfo::Role(guild.alert_role.unwrap())))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn validate_info(&self, ctx: &Context) -> Result<Vec<(GuildId, InvalidInfo)>> {
         let mut invalid_guilds: Vec<(GuildId, InvalidInfo)> = vec![];
         for guild in self.guilds().await?.iter() {
-            let g = Self::get_guild(&guild.guild_id, &ctx).await?;
-            let channel_valid = guild.alert_channel.is_some()
-                && g.channels(&ctx.http)
-                    .await?
-                    .iter()
-                    .find(|(id, _)| **id == guild.alert_channel.unwrap())
-                    .is_some();
-            let mut role_valid = true;
-            if guild.alert_role.is_some() {
-                role_valid = g
-                    .roles
-                    .iter()
-                    .find(|(id, _)| **id == guild.alert_role.unwrap())
-                    .is_some();
-            }
-            if !channel_valid && !role_valid {
-                invalid_guilds.push((
-                    guild.guild_id,
-                    InvalidInfo::Both(guild.alert_channel, guild.alert_role.unwrap()),
-                ))
-            }
-            if !channel_valid {
-                invalid_guilds.push((guild.guild_id, InvalidInfo::Channel(guild.alert_channel)))
-            }
-            if !role_valid {
-                invalid_guilds.push((guild.guild_id, InvalidInfo::Role(guild.alert_role.unwrap())))
+            if let Some(info) = self.validate_guild(guild, ctx).await? {
+                invalid_guilds.push((guild.guild_id, info));
             }
         }
 

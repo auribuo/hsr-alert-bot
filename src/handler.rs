@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use serenity::all::{CreateMessage, Guild, GuildChannel, GuildId, PartialGuild, RoleId};
+use serenity::all::{CreateMessage, Guild, GuildId, PartialGuild};
 use serenity::{
     all::{Interaction, Ready},
     async_trait,
@@ -8,22 +8,18 @@ use serenity::{
 };
 
 use crate::commands::CreateCommandVecExt;
-use crate::db::{TursoCode, TursoDb};
+use crate::db::{GuildUpdate, TursoDb};
 use crate::{commands, DB};
 
-pub struct Handler {}
+pub struct Handler;
 
 impl Handler {
-    pub fn new() -> Self {
-        Self {}
-    }
-
     async fn run_alerts(ctx: Context) {
         loop {
-            info!("Updating guild information");
+            info!("Validating guild information");
 
             Self::validate_info(&ctx, DB.read().await.as_ref().unwrap()).await;
-            info!("Waiting for current codes");
+            info!("Waiting for current codes from scaper");
             let new_codes = crate::CODE_CHAN.lock().await.as_mut().unwrap().recv().await;
             if let Some(codes) = new_codes {
                 if let Err(err) = Self::handle_new_codes(&ctx, &codes).await {
@@ -36,40 +32,32 @@ impl Handler {
     async fn handle_new_codes(ctx: &Context, codes: &Vec<String>) -> Result<()> {
         let db_opt = DB.read().await;
         let db = db_opt.as_ref().unwrap();
-        for guild_diff in db.diff_guild_codes(codes).await? {
-            if let Err(err) = Self::send_new_codes(
-                guild_diff.0,
-                guild_diff.1 .1,
-                guild_diff.1 .0.alert_role,
-                &ctx,
-            )
-            .await
-            {
+        for guild_diff in db.diff_guild_codes(codes, ctx).await? {
+            if let Err(err) = Self::send_new_codes(&guild_diff.1, &ctx).await {
                 error!(reason=err.to_string(), guild=?guild_diff.0, "Could not send codes");
             } else {
-                info!(guild=?guild_diff.0, "Sent codes to guild.")
+                info!(guild=?guild_diff.0, "Sent codes to guild");
+                db.set_codes_sent(guild_diff.0, guild_diff.1.codes).await?;
             }
         }
         Ok(())
     }
 
-    async fn send_new_codes(
-        guild_id: GuildId,
-        codes: Vec<TursoCode>,
-        alert_role: Option<RoleId>,
-        ctx: &Context,
-    ) -> Result<()> {
-        if codes.is_empty() {
-            info!(guild=?guild_id, "No new codes to send");
+    async fn send_new_codes(update: &GuildUpdate, ctx: &Context) -> Result<()> {
+        if !update.has_codes() {
+            info!(guild=?update.id, "No new codes to send");
             return Ok(());
         }
-        let header = if let Some(role) = alert_role {
+        let header = if let Some(role) = update.role {
             format!("New Star Rail codes available <@&{role}>")
         } else {
             "New Star Rail codes available".to_string()
         };
 
-        let body = codes
+        let body = update
+            .codes
+            .as_ref()
+            .unwrap()
             .iter()
             .map(|code| {
                 format!(
@@ -78,11 +66,13 @@ impl Handler {
                 )
             })
             .fold(header, |acc, elem| acc + "\n" + elem.as_str());
-        let alert_chan = Self::get_alert_channel(&guild_id, &ctx).await?;
+        let Some(alert_chan) = update.chan else {
+            return Err(anyhow!("No alert channel set"));
+        };
         alert_chan
             .send_message(&ctx.http, CreateMessage::new().content(body))
             .await?;
-        info!(guild=?guild_id, "Sent codes to guild");
+        info!(guild=?update.id, "Sent codes to guild");
         Ok(())
     }
 
@@ -103,34 +93,6 @@ impl Handler {
                 error!("Could not validate if guild info is up-to-date: {err}");
             }
         }
-    }
-
-    async fn get_alert_channel(guild_maybe: &GuildId, ctx: &Context) -> Result<GuildChannel> {
-        if let Ok(guild) = Guild::get(&ctx.http, guild_maybe).await {
-            return if let Ok(Some(chan_id)) = DB
-                .read()
-                .await
-                .as_ref()
-                .unwrap()
-                .guild_alert_channel(guild.id)
-                .await
-            {
-                let channel_result = guild.channels(&ctx.http).await;
-                if let Err(err) = channel_result {
-                    return Err(anyhow!("Error: {}", err));
-                }
-                let channels = channel_result.unwrap();
-                let alert_channel_result = channels.iter().find(|(id, _)| **id == chan_id);
-                if let None = alert_channel_result {
-                    return Err(anyhow!("Alert channel does not exist"));
-                }
-                let (_, alert_channel) = alert_channel_result.unwrap();
-                Ok(alert_channel.clone())
-            } else {
-                Err(anyhow!("No alert channel set"))
-            };
-        }
-        return Err(anyhow!("Guild not found"));
     }
 }
 
@@ -175,12 +137,8 @@ impl EventHandler for Handler {
         }
 
         info!(
-            "{} connected to guilds:\n{:?}",
-            ready.user.name,
-            joined_guilds
-                .iter()
-                .map(|g| g.name.clone())
-                .collect::<Vec<String>>()
+            guild_count = joined_guilds.len(),
+            "{} connected", ready.user.name,
         );
 
         info!("Updating guild info");

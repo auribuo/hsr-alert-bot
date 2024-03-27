@@ -88,9 +88,8 @@ async fn app(
         scraper::run(tx, SCRAPER_INTERVAL).await
     });
 
-    let handler = handler::Handler::new();
     let client = Client::builder(token, GatewayIntents::empty())
-        .event_handler(handler)
+        .event_handler(handler::Handler)
         .await
         .expect("Error creating client");
     Ok(client.into())

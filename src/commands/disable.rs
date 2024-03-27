@@ -10,7 +10,7 @@ pub async fn run(interaction: &CommandInteraction) -> String {
             .await
             .as_ref()
             .unwrap()
-            .set_guild_state(guild_id, true)
+            .set_guild_state(guild_id, false)
             .await
         {
             tracing::error!("{error}");
