@@ -315,15 +315,19 @@ impl TursoDb {
         self.invalidate_codes(new_codes).await?;
         let mut new_codes = HashMap::new();
         for guild in self.guilds().await? {
-            if let Some(_) = self.validate_guild(&guild, ctx).await? {
-                warn!(guild=?guild.guild_id, "Skipping invalid guild");
-                continue;
-            }
-
             if guild.enabled == 0 {
                 warn!(guild=?guild.guild_id, "Skipping disabled guild");
                 continue;
             }
+
+            if let Some(_) = self.validate_guild(&guild, ctx).await? {
+                warn!(guild=?guild.guild_id, "Disabling invalid guild");
+                if let Err(err) = self.set_guild_state(guild.guild_id, false).await {
+                    error!(reason = err.to_string(), "Could not disable invalid guild");
+                }
+                continue;
+            }
+
             let mut rows = self.client.query("SELECT * FROM codes WHERE id > (SELECT last_code FROM guilds WHERE guild_id = ?1) AND valid = 1", [i64::from(guild.guild_id)]).await?;
             let mut codes = Vec::new();
             let guild_id = guild.guild_id;
@@ -441,6 +445,9 @@ impl TursoDb {
         guild: &TursoGuild,
         ctx: &Context,
     ) -> Result<Option<InvalidInfo>> {
+        if guild.enabled == 0 {
+            return Ok(None);
+        }
         let g = Self::get_guild(&guild.guild_id, &ctx).await?;
         let channel_valid = guild.alert_channel.is_some()
             && g.channels(&ctx.http)
@@ -514,9 +521,9 @@ impl TursoDb {
         default_chan: &GuildChannel,
     ) -> Result<()> {
         if let Some(id) = chan_id {
-            default_chan.send_message(&ctx.http, CreateMessage::new().content(format!("The channel (id={}) you set for the alerts is not valid anymore. Please set it again", id))).await?;
+            default_chan.send_message(&ctx.http, CreateMessage::new().content(format!("The channel (id={}) you set for the alerts is not valid anymore. Please set it again. The guild will be disabled. Re-enable the guild using /enable", id))).await?;
         } else {
-            default_chan.send_message(&ctx.http, CreateMessage::new().content("No alert channel found. You might want to set the channel using: `/alert-channel`")).await?;
+            default_chan.send_message(&ctx.http, CreateMessage::new().content("No alert channel found. You might want to set the channel using: `/alert-channel`. The guild will be disabled. Re-enable the guild using /enable")).await?;
         }
         Ok(())
     }
@@ -526,7 +533,7 @@ impl TursoDb {
         role_id: RoleId,
         default_chan: &GuildChannel,
     ) -> Result<()> {
-        default_chan.send_message(&ctx.http, CreateMessage::new().content(format!("The role (id={}) you set for the alerts is not valid anymore. Please set it again", role_id))).await?;
+        default_chan.send_message(&ctx.http, CreateMessage::new().content(format!("The role (id={}) you set for the alerts is not valid anymore. Please set it again. The guild will be disabled. Re-enable the guild using /enable", role_id))).await?;
         Ok(())
     }
 
