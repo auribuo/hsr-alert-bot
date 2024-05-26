@@ -260,6 +260,29 @@ impl TursoDb {
         Ok(())
     }
 
+    pub async fn send_to_all_guilds(&self, message: String, ctx: &Context) -> Result<()> {
+        let all_guilds = self.guilds().await?;
+
+        for guild in all_guilds {
+            if let Some(channel_id) = guild.alert_channel {
+                if let Ok(guild) = Self::get_guild(&guild.guild_id, ctx).await {
+                    if let Some((_, channel)) = guild
+                        .channels(&ctx.http)
+                        .await?
+                        .iter()
+                        .find(|(&id, _)| id == channel_id)
+                    {
+                        channel
+                            .send_message(&ctx.http, CreateMessage::new().content(&message))
+                            .await?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn set_codes_sent(
         &self,
         guild: GuildId,

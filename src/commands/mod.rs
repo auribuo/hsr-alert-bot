@@ -2,6 +2,7 @@ use serenity::all::Command;
 use serenity::all::{CacheHttp, CreateCommand};
 use serenity::async_trait;
 
+pub mod announcement;
 pub mod disable;
 pub mod enable;
 pub mod set_alert_channel;
