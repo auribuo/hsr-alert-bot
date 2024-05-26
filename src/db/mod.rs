@@ -93,7 +93,7 @@ impl TursoGuild {
         }
 
         if let Some("alert_channel") = row.column_name(4) {
-            if let Ok(ValueType::Integer) = row.column_type(4) {
+            if let Ok(ValueType::Text) = row.column_type(4) {
                 alert_channel = Some(ChannelId::new(row.get::<String>(4)?.parse::<u64>()?));
             } else if let Ok(ValueType::Null) = row.column_type(4) {
                 alert_channel = None;
