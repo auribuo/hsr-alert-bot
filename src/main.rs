@@ -43,11 +43,11 @@ async fn app(
             r#"
                 CREATE TABLE IF NOT EXISTS guilds (
                     id integer primary key autoincrement,
-                    guild_id int unique not null,
+                    guild_id text unique not null,
                     enabled integer not null default 1,
                     last_code int not null default 0,
-                    alert_channel int null default null,
-                    alert_role int null default null
+                    alert_channel text null default null,
+                    alert_role text null default null
                 );
             "#,
             (),

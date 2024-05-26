@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{i64, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use libsql::{params, Connection, Row, ValueType};
@@ -45,12 +45,8 @@ impl TursoGuild {
         }
 
         if let Some("guild_id") = row.column_name(1) {
-            if let Ok(ValueType::Integer) = row.column_type(1) {
-                guild_id = GuildId::new(
-                    row.get::<i64>(1)?
-                        .try_into()
-                        .expect("Guild Id should never positive"),
-                );
+            if let Ok(ValueType::Text) = row.column_type(1) {
+                guild_id = GuildId::new(row.get::<String>(1)?.parse::<u64>()?);
             } else {
                 return Err(anyhow!(
                     "Expected field 1 to be of type Integer. Was {:?}",
@@ -98,11 +94,7 @@ impl TursoGuild {
 
         if let Some("alert_channel") = row.column_name(4) {
             if let Ok(ValueType::Integer) = row.column_type(4) {
-                alert_channel = Some(ChannelId::new(
-                    row.get::<i64>(4)?
-                        .try_into()
-                        .expect("Channel Id should be positive"),
-                ));
+                alert_channel = Some(ChannelId::new(row.get::<String>(4)?.parse::<u64>()?));
             } else if let Ok(ValueType::Null) = row.column_type(4) {
                 alert_channel = None;
             } else {
@@ -119,12 +111,8 @@ impl TursoGuild {
         }
 
         if let Some("alert_role") = row.column_name(5) {
-            if let Ok(ValueType::Integer) = row.column_type(5) {
-                alert_role = Some(RoleId::new(
-                    row.get::<i64>(5)?
-                        .try_into()
-                        .expect("Role Id should be positive"),
-                ));
+            if let Ok(ValueType::Text) = row.column_type(5) {
+                alert_role = Some(RoleId::new(row.get::<String>(5)?.parse::<u64>()?));
             } else if let Ok(ValueType::Null) = row.column_type(5) {
                 alert_role = None;
             } else {
@@ -286,7 +274,7 @@ impl TursoDb {
                 .client
                 .execute(
                     "UPDATE guilds SET last_code = ?1 WHERE guild_id = ?2",
-                    params![last_inserted, i64::from(guild)],
+                    params![last_inserted, guild.to_string()],
                 )
                 .await?;
             if res != 1 {
@@ -328,7 +316,7 @@ impl TursoDb {
                 continue;
             }
 
-            let mut rows = self.client.query("SELECT * FROM codes WHERE id > (SELECT last_code FROM guilds WHERE guild_id = ?1) AND valid = 1", [i64::from(guild.guild_id)]).await?;
+            let mut rows = self.client.query("SELECT * FROM codes WHERE id > (SELECT last_code FROM guilds WHERE guild_id = ?1) AND valid = 1", [guild.guild_id.to_string()]).await?;
             let mut codes = Vec::new();
             let guild_id = guild.guild_id;
             while let Some(row) = rows.next()? {
@@ -350,7 +338,7 @@ impl TursoDb {
             .client
             .execute(
                 "UPDATE guilds SET enabled = ?1 WHERE guild_id = ?2;",
-                [enabled as i64, i64::from(guild)],
+                params![enabled as i64, guild.to_string()],
             )
             .await?;
         if res != 1 {
@@ -374,7 +362,7 @@ impl TursoDb {
             .client
             .execute(
                 "UPDATE guilds SET alert_role = ?1 WHERE guild_id = ?2",
-                params![role.map(|id| i64::from(id)), i64::from(guild)],
+                params![role.map(|id| i64::from(id)), guild.to_string()],
             )
             .await?;
         if res != 1 {
@@ -403,7 +391,7 @@ impl TursoDb {
             .client
             .execute(
                 "UPDATE guilds SET alert_channel = ?1 WHERE guild_id = ?2",
-                params![channel.map(|id| i64::from(id)), i64::from(guild)],
+                params![channel.map(|id| i64::from(id)), guild.to_string()],
             )
             .await?;
         if res != 1 {
@@ -428,7 +416,7 @@ impl TursoDb {
                 .client
                 .execute(
                     "INSERT INTO guilds (id, guild_id) VALUES (NULL, ?1);",
-                    [i64::from(guild)],
+                    [guild.to_string()],
                 )
                 .await?;
             if res != 1 {
