@@ -89,7 +89,9 @@ async fn app(
     });
 
     let client = Client::builder(token, GatewayIntents::empty())
-        .event_handler(handler::Handler)
+        .event_handler(handler::Handler {
+            admin: secrets.get("ADMIN").expect("Admin should be set"),
+        })
         .await
         .expect("Error creating client");
     Ok(client.into())

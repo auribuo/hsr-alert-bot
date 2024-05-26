@@ -11,7 +11,9 @@ use crate::commands::CreateCommandVecExt;
 use crate::db::{GuildUpdate, TursoDb};
 use crate::{commands, DB};
 
-pub struct Handler;
+pub struct Handler {
+    pub admin: String,
+}
 
 impl Handler {
     async fn run_alerts(ctx: Context) {
@@ -160,6 +162,7 @@ impl EventHandler for Handler {
             commands::set_alert_channel::register(),
             commands::set_alert_role::register(),
             commands::subscribe::register(),
+            commands::announcement::register(),
         ];
 
         commands.global_register_all(&ctx.http).await;
@@ -184,6 +187,9 @@ impl EventHandler for Handler {
                 }
                 commands::subscribe::CMD_NAME => {
                     Some(commands::subscribe::run(&command, &ctx).await)
+                }
+                commands::announcement::CMD_NAME => {
+                    Some(commands::announcement::run(&command, &ctx, &self.admin).await)
                 }
                 _ => {
                     warn!("Received invalid command");

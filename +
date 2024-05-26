@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use libsql::{params, Connection, Row, ValueType};
 use serde::{Deserialize, Serialize};
 use serenity::all::{
-    ChannelId, Context, CreateMessage, Guild, GuildChannel, GuildId, PartialGuild, RoleId,
+    Channel, ChannelId, Context, CreateMessage, Guild, GuildChannel, GuildId, PartialGuild, RoleId,
     UnavailableGuild,
 };
 use std::collections::HashMap;
@@ -273,7 +273,7 @@ impl TursoDb {
                         .find(|(&id, _)| id == channel_id)
                     {
                         channel
-                            .send_message(&ctx.http, CreateMessage::new().content(&message))
+                            .send_message(&ctx.http, CreateMessage::new().content("Text"))
                             .await?;
                     }
                 }
