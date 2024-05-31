@@ -1,5 +1,1 @@
 name = "hsr-alert-bot"
-
-assets = [
-    "cfg.json"
-]
