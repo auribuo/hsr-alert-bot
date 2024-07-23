@@ -316,12 +316,18 @@ impl TursoDb {
         ctx: &Context,
     ) -> Result<HashMap<GuildId, GuildUpdate>> {
         for code in new_codes {
-            self.client
-                .execute(
-                    "INSERT INTO codes (id, code, valid) VALUES (NULL, ?1, 1) ON CONFLICT DO NOTHING;",
-                    [code.as_str()],
-                )
+            let mut exist = self
+                .client
+                .query("SELECT * FROM codes WHERE code = ?1;", [code.as_str()])
                 .await?;
+            if let None = exist.next()? {
+                self.client
+                    .execute(
+                        "INSERT INTO codes (id, code, valid) VALUES (NULL, ?1, 1);",
+                        [code.as_str()],
+                    )
+                    .await?;
+            }
         }
         self.invalidate_codes(new_codes).await?;
         let mut new_codes = HashMap::new();
@@ -357,6 +363,18 @@ impl TursoDb {
     }
 
     pub async fn set_guild_state(&self, guild: GuildId, enabled: bool) -> Result<()> {
+        let mut exists = self
+            .client
+            .query(
+                "SELECT * FROM guilds WHERE guild_id = ?1",
+                [guild.to_string()],
+            )
+            .await?;
+        if let None = exists.next()? {
+            if self.try_add_guild(guild).await? {
+                info!(id=?guild, "Discovered new guild!. Added to db");
+            }
+        }
         let res = self
             .client
             .execute(
@@ -459,31 +477,44 @@ impl TursoDb {
         if guild.enabled == 0 {
             return Ok(None);
         }
-        let g = Self::get_guild(&guild.guild_id, &ctx).await?;
-        let channel_valid = guild.alert_channel.is_some()
-            && g.channels(&ctx.http)
-                .await?
-                .iter()
-                .find(|(id, _)| **id == guild.alert_channel.unwrap())
-                .is_some();
-        let mut role_valid = true;
-        if guild.alert_role.is_some() {
-            role_valid = g
-                .roles
-                .iter()
-                .find(|(id, _)| **id == guild.alert_role.unwrap())
-                .is_some();
-        }
-        if !channel_valid && !role_valid {
-            Ok(Some(InvalidInfo::Both(
-                guild.alert_channel,
-                guild.alert_role.unwrap(),
-            )))
-        } else if !channel_valid {
-            Ok(Some(InvalidInfo::Channel(guild.alert_channel)))
-        } else if !role_valid {
-            Ok(Some(InvalidInfo::Role(guild.alert_role.unwrap())))
+        if let Ok(g) = Self::get_guild(&guild.guild_id, &ctx).await {
+            let channel_valid = guild.alert_channel.is_some()
+                && g.channels(&ctx.http)
+                    .await?
+                    .iter()
+                    .find(|(id, _)| **id == guild.alert_channel.unwrap())
+                    .is_some();
+            let mut role_valid = true;
+            if guild.alert_role.is_some() {
+                role_valid = g
+                    .roles
+                    .iter()
+                    .find(|(id, _)| **id == guild.alert_role.unwrap())
+                    .is_some();
+            }
+            if !channel_valid && !role_valid {
+                Ok(Some(InvalidInfo::Both(
+                    guild.alert_channel,
+                    guild.alert_role.unwrap(),
+                )))
+            } else if !channel_valid {
+                Ok(Some(InvalidInfo::Channel(guild.alert_channel)))
+            } else if !role_valid {
+                Ok(Some(InvalidInfo::Role(guild.alert_role.unwrap())))
+            } else {
+                Ok(None)
+            }
         } else {
+            self.client
+                .execute(
+                    "DELETE FROM guilds WHERE guild_id = ?1;",
+                    [guild.guild_id.to_string()],
+                )
+                .await?;
+            warn!(
+                id = ?guild.guild_id,
+                "Could not get guild. Removing it from known guilds."
+            );
             Ok(None)
         }
     }

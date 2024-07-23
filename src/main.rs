@@ -1,6 +1,6 @@
-use std::process::exit;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use lazy_static::lazy_static;
 use libsql::Connection;
 use serenity::{all::GatewayIntents, Client};
@@ -38,41 +38,20 @@ async fn app(
     let token = secrets.get("DISCORD_TOKEN").expect("No token provided");
 
     info!("Initializing db");
-    if let Err(err) = client
-        .execute(
-            r#"
-                CREATE TABLE IF NOT EXISTS guilds (
-                    id integer primary key autoincrement,
-                    guild_id text unique not null,
-                    enabled integer not null default 1,
-                    last_code int not null default 0,
-                    alert_channel text null default null,
-                    alert_role text null default null
-                );
-            "#,
-            (),
+    if let Err(err) = client.execute(include_str!("../sql/guilds.sql"), ()).await {
+        return Err(anyhow!(
+            "Cannot initialize db. Failed to set up table guilds: {}",
+            err.to_string()
         )
-        .await
-    {
-        error!(reason = err.to_string(), "Cannot initialize db");
-        exit(1);
+        .into());
     }
 
-    if let Err(err) = client
-        .execute(
-            r#"
-                CREATE TABLE IF NOT EXISTS codes (
-                    id integer primary key autoincrement,
-                    code varchar(50) not null unique,
-                    valid integer not null
-                );
-            "#,
-            (),
+    if let Err(err) = client.execute(include_str!("../sql/codes.sql"), ()).await {
+        return Err(anyhow!(
+            "Cannot initialize db. Failed to set up table codes: {}",
+            err.to_string()
         )
-        .await
-    {
-        error!(reason = err.to_string(), "Cannot initialize db");
-        exit(1);
+        .into());
     }
 
     *DB.write().await = Some(TursoDb::new(Arc::new(client)).await.unwrap());
