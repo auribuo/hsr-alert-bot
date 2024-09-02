@@ -6,6 +6,8 @@ The bot scrapes (for now) a blog which lists all released codes.
 
 ## [🔗 INVITE LINK](https://discord.com/oauth2/authorize?client_id=1199374805309337661&permissions=0&scope=bot%20applications.commands)
 
+[Top.gg Page](https://top.gg/bot/1199374805309337661)
+
 ## Commands
 
 - `/enable` - Enable alerts for this server
